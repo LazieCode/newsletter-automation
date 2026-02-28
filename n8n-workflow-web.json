@@ -1,0 +1,759 @@
+{
+  "name": "Newsletter Automation - Web Triggered",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "newsletter-trigger",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "webhook-trigger-001",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -21168,
+        7168
+      ],
+      "webhookId": "newsletter-trigger-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse brand input from webhook body\nconst body = $input.first().json.body;\nconst brandName = body.brandName;\nconst brandDescription = body.brandDescription;\nconst callbackUrl = body.callbackUrl;\nconst sessionId = body.sessionId;\n\nif (!brandName || !brandDescription) {\n  throw new Error('brandName and brandDescription are required');\n}\n\nconst today = new Date();\nconst dateStr = today.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });\n\nreturn [{\n  json: {\n    brandName,\n    brandDescription,\n    callbackUrl,\n    sessionId,\n    date: dateStr,\n    timestamp: today.toISOString()\n  }\n}];"
+      },
+      "id": "4a5767d4-bc4d-4d05-ad26-5924d37fc622",
+      "name": "Parse Brand Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20944,
+        7168
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ sessionId: $json.sessionId, status: 'processing' }) }}",
+        "options": {}
+      },
+      "id": "respond-webhook-001",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -20720,
+        7168
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.perplexity.ai/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"sonar-pro\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a senior industry research analyst specializing in deep market intelligence. Your research must be EXHAUSTIVE and DATA-RICH. Every claim needs a specific number, date, or named source. You prioritize the most recent developments (last 30 days first, then last 90 days). You name specific companies, executives, dollar amounts, and growth rates. If you cannot find recent data on something, say so explicitly rather than being vague.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Conduct deep research on the industry and market segment for this brand description: ({{ $('Parse Brand Input').item.json.brandDescription }}).\\n\\nProvide ALL of the following with maximum specificity:\\n\\n1. INDUSTRY SNAPSHOT: Current global market size (exact dollar figure), growth rate (CAGR), and the 3 biggest trends reshaping this industry RIGHT NOW. Include which regions are growing fastest and why.\\n\\n2. RECENT DEVELOPMENTS (Last 30-90 days): Any product launches, major deals, funding rounds, IPOs, acquisitions, regulatory changes, or leadership moves. Be specific with dates, amounts, and company names.\\n\\n3. TOP 5 COMPETITORS: Name the top 5 companies in this space. For each: their latest move, market position, recent funding/revenue, and strategic direction.\\n\\n4. TECHNOLOGY & INNOVATION: What technological breakthroughs or innovations are happening? Any patents, new products, or R&D milestones?\\n\\n5. REGULATORY & POLICY: Any government policies, subsidies, tariffs, or regulations affecting this industry? Which countries are leading policy support?\\n\\n6. MARKET SENTIMENT & INVESTMENT: Is institutional money flowing in or out? Any notable VC/PE deals? What are analysts saying about the sector outlook?\\n\\n7. CHALLENGES & RISKS: What are the top 3 headwinds or risks facing this industry right now?\\n\\nBe relentlessly specific. No vague statements. Every paragraph should contain at least one concrete data point.\"\n    }\n  ],\n  \"max_tokens\": 6000,\n  \"temperature\": 0.1,\n  \"return_citations\": true\n}",
+        "options": {}
+      },
+      "id": "ba21053c-c5dc-48d6-8e9d-7ba8bf933dc1",
+      "name": "Perplexity - Deep Research",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -20496,
+        7072
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "87WdvhLq9ogXQzsb",
+          "name": "perplexity"
+        },
+        "httpBearerAuth": {
+          "id": "esrMFGW4EqUbOxoh",
+          "name": "Perplexity"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "=https://news.google.com/rss/search?q={{ $('Parse Brand Input').item.json.brandDescription }}&hl=en-US&gl=US&ceid=US:en",
+        "options": {}
+      },
+      "id": "d131b19f-fc11-4e69-af08-39e908b1216e",
+      "name": "Google News RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [
+        -20496,
+        7264
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineAll",
+        "options": {}
+      },
+      "id": "d284f889-4d3a-42b7-adb8-92edb7de26ad",
+      "name": "Wait For All Research",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        -20272,
+        7168
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate all research data into a single structured object\nconst perplexityRaw = $('Perplexity - Deep Research').first().json;\nconst googleNewsRaw = $('Google News RSS').all();\nconst brandInfo = $('Parse Brand Input').first().json;\n\n// Extract Perplexity research\nlet perplexityContent = '';\nlet citations = [];\ntry {\n  perplexityContent = perplexityRaw.choices?.[0]?.message?.content || 'No research data available';\n  citations = perplexityRaw.citations || [];\n} catch(e) {\n  perplexityContent = 'Perplexity research unavailable';\n}\n\n// Extract Google News\nlet newsArticles = [];\ntry {\n  newsArticles = googleNewsRaw\n    .slice(0, 10)\n    .map(item => ({\n      title: item.json.title || '',\n      link: item.json.link || '',\n      pubDate: item.json.pubDate || '',\n      description: (item.json.content || item.json.description || '').substring(0, 300)\n    }));\n} catch(e) {\n  newsArticles = [];\n}\n\nreturn [{\n  json: {\n    brandName: brandInfo.brandName,\n    brandDescription: brandInfo.brandDescription,\n    callbackUrl: brandInfo.callbackUrl,\n    sessionId: brandInfo.sessionId,\n    date: brandInfo.date,\n    research: {\n      perplexity: perplexityContent,\n      citations: citations,\n      googleNews: newsArticles\n    }\n  }\n}];"
+      },
+      "id": "f91f2cb0-5c30-42d0-87a5-db8d4f938dde",
+      "name": "Aggregate Research Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -20064,
+        7184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Brand Input').item.json.callbackUrl }}/api/webhook/update",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sessionId: $('Parse Brand Input').item.json.sessionId, stage: 'researching', research: $json.research }) }}",
+        "options": {}
+      },
+      "id": "callback-research-001",
+      "name": "Callback: Research Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -19840,
+        7184
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\nconst perplexityText = (data.research?.perplexity || 'No research data available')\n  .substring(0, 15000);\n\nconst googleNewsText = JSON.stringify(data.research?.googleNews || [])\n  .substring(0, 4000);\n\nconst citationsText = JSON.stringify(data.research?.citations || [])\n  .substring(0, 2000);\n\nconst systemPrompt = `You are an elite newsletter writer for industry professionals. You output ONLY raw JSON.\n\nCRITICAL OUTPUT RULES:\n- Your response must start with { and end with }\n- No markdown fences, no backticks, no preamble, no commentary\n- No text before or after the JSON object\n\nWRITING STYLE:\n- Write like a sharp industry analyst who also knows how to tell a story\n- Every claim must have a specific number, date, company name, or data point\n- Each section should make the reader feel like they learned something they can ACT on\n- Use contrast and comparison: \"While X did this, Y went the opposite direction\"\n- Include \"What this means\" implications — don't just report, ANALYZE\n- Name specific companies, people, products, and dollar amounts\n- Each section body: 250-350 words — substantial and insight-dense\n- Sections should feel like mini-articles, not bullet point summaries\n\nSTRUCTURE RULES:\n- Every section MUST have a punchy, specific title (use 1 emoji per title)\n- First section: The BIGGEST story — the most impactful development\n- Middle sections: Deep dives into specific angles (competitor moves, tech shifts, market data)\n- Last section: Forward-looking prediction or strategic implication\n- Each section should have a different ANGLE — don't repeat the same theme\n\nHTML RULES FOR \"body\" FIELDS:\n- Use ONLY these tags: <p> <strong> <em> <ul> <li>\n- Use straight quotes only, no curly/smart quotes\n- No HTML entities like &amp; — write plain text\n- Do not nest <p> inside <li>\n- Use <strong> to highlight key numbers and company names\n- Keep HTML simple and flat`;\n\nconst userPrompt = `Write a newsletter for the brand '${data.brandName}' (${data.brandDescription}).\n\nRESEARCH DATA — Use this as your source material. Extract every useful data point:\n\n--- PERPLEXITY RESEARCH ---\n${perplexityText}\n\n--- GOOGLE NEWS (recent articles) ---\n${googleNewsText}\n\n--- SOURCE CITATIONS ---\n${citationsText}\n\nIMPORTANT WRITING INSTRUCTIONS:\n1. Do NOT just summarize the research. ANALYZE it. What do the numbers mean? What's the strategic implication?\n2. Name specific competitors and what they're doing. If research mentions companies, USE those names.\n3. Include specific dollar amounts, percentages, growth rates, and dates.\n4. Each section should teach the reader something they didn't know.\n5. The LinkedIn post should be a standalone piece that makes people want to read the full newsletter.\n6. For image_prompt: Be VERY specific — describe scene, lighting, colors, style. Example: \"Aerial photograph of a large-scale lithium-ion battery storage facility with white containers arranged in rows, desert landscape, golden hour lighting, industrial scale visible\"\n7. For image_search_query: Use SIMPLE 1-2 word generic queries that Unsplash would definitely have photos for. Examples: \"solar panels\", \"battery storage\", \"factory\", \"power grid\", \"circuit board\", \"wind turbines\", \"warehouse\", \"data center\". NEVER use comparison phrases like \"X vs Y\" or technical jargon. Keep it to common visual subjects.\n\nRespond with ONLY this JSON structure. First character { last character }.\n\n{\"headline\":\"Compelling headline with a specific number or fact\",\"subtitle\":\"One-line subtitle that adds NEW context not in the headline\",\"sections\":[{\"title\":\"Emoji + Specific punchy title\",\"body\":\"250-350 word HTML content with specific data, company names, analysis, and implications. Use p/strong/em/ul/li tags.\",\"image_prompt\":\"Very detailed image generation prompt with style, scene, lighting, colors described\",\"image_search_query\":\"3-4 specific words for Unsplash stock photo search\"}],\"closing\":\"Forward-looking closing with a specific prediction or call-to-action\",\"linkedin_post\":\"Standalone LinkedIn post, max 1300 chars. Hook opening line that stops the scroll. Key stats. Clear takeaway. 3-5 hashtags. Use line breaks and emojis strategically.\"}\n\nCreate 4-6 sections. Each section must have a DIFFERENT angle — do not repeat themes.`;\n\nconst requestBody = {\n  model: 'anthropic/claude-sonnet-4.6',\n  messages: [\n    { role: 'system', content: systemPrompt },\n    { role: 'user', content: userPrompt }\n  ],\n  max_tokens: 10000,\n  temperature: 0.5\n};\n\nreturn [{\n  json: {\n    requestBody: requestBody,\n    brandName: data.brandName,\n    brandDescription: data.brandDescription,\n    callbackUrl: data.callbackUrl,\n    sessionId: data.sessionId,\n    date: data.date,\n    research: data.research\n  }\n}];"
+      },
+      "id": "d3a5a574-eb13-4934-b2c8-9ecc6a972860",
+      "name": "Build OpenRouter Payload1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -19616,
+        7184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.requestBody) }}",
+        "options": {}
+      },
+      "id": "fd64ef01-6884-4f9f-838f-8001cd101dc8",
+      "name": "OpenRouter - Write Newsletter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -19392,
+        7184
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "87WdvhLq9ogXQzsb",
+          "name": "perplexity"
+        },
+        "httpBearerAuth": {
+          "id": "b3yNdminLnrELyvb",
+          "name": "OpenRouter"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the newsletter JSON from OpenRouter response\nconst raw = $input.first().json;\nconst brandInfo = $('Build OpenRouter Payload1').first().json;\n\nlet content;\ntry {\n  let text = raw.choices[0].message.content;\n  // Strip markdown code fences if present\n  text = text.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  content = JSON.parse(text);\n} catch(e) {\n  throw new Error('Failed to parse newsletter JSON from OpenRouter: ' + e.message);\n}\n\n// Validate structure\nif (!content.headline || !content.sections || !Array.isArray(content.sections)) {\n  throw new Error('Invalid newsletter structure returned from AI');\n}\n\nreturn [{\n  json: {\n    ...brandInfo,\n    newsletter: content\n  }\n}];"
+      },
+      "id": "caeceadc-0d60-4cee-a81d-a7dfa7e3dffc",
+      "name": "Parse Newsletter JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -19168,
+        7184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Brand Input').item.json.callbackUrl }}/api/webhook/update",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sessionId: $('Parse Brand Input').item.json.sessionId, stage: 'writing', newsletter: $json.newsletter }) }}",
+        "options": {}
+      },
+      "id": "callback-newsletter-001",
+      "name": "Callback: Newsletter Written",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -18944,
+        7184
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst sections = data.newsletter.sections;\n\nreturn sections.map((section, index) => ({\n  json: {\n    sectionIndex: index,\n    sectionTitle: section.title,\n    imagePrompt: section.image_prompt,\n    brandName: data.brandName,\n    totalSections: sections.length,\n    // Pass full newsletter data on each item so we can recover it later\n    _newsletterData: data\n  }\n}));"
+      },
+      "id": "cda7ccb1-2cf9-4669-92d7-3a58d2eb7401",
+      "name": "Split Sections for Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -18720,
+        7184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Brand Input').item.json.callbackUrl }}/api/webhook/update",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sessionId: $('Parse Brand Input').item.json.sessionId, stage: 'generating_images' }) }}",
+        "options": {}
+      },
+      "id": "callback-images-001",
+      "name": "Callback: Generating Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -18496,
+        7060
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "577d9325-c186-4e34-9ae4-8977ccc4351e",
+      "name": "Loop Over Sections",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -18272,
+        7184
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.kie.ai/api/v1/jobs/createTask",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"google/nano-banana\",\n  \"input\": {\n    \"prompt\": \"Professional newsletter illustration: {{ $json.imagePrompt }}. Style: clean, modern, corporate-editorial. High quality, photorealistic where appropriate. No text or letters in the image.\",\n    \"output_format\": \"png\",\n    \"image_size\": \"16:9\"\n  }\n}",
+        "options": {}
+      },
+      "id": "75a6b2b5-2005-44be-8811-e1f6a714e2da",
+      "name": "Kie - Create Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -18048,
+        7344
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dOdM9bubPg8Ha45b",
+          "name": "Kie Demo"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 12
+      },
+      "id": "712afe49-9268-4d2c-84bc-869fd4666de0",
+      "name": "Wait for Kie",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -17824,
+        7472
+      ],
+      "webhookId": "v6-wait-kie-12s"
+    },
+    {
+      "parameters": {
+        "url": "https://api.kie.ai/api/v1/jobs/recordInfo",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "taskId",
+              "value": "={{ $json.data.taskId }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "89c7b2f0-d260-40b9-b62e-93a74cb60b13",
+      "name": "Kie - Get Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -17600,
+        7472
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "dOdM9bubPg8Ha45b",
+          "name": "Kie Demo"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ready-check-v6",
+              "leftValue": "={{ $json.data.resultJson }}",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "8817a09f-ba58-4a40-939c-c561e0d08f0b",
+      "name": "Is Image Ready?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -17376,
+        7424
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst loopItem = $('Loop Over Sections').first().json;\n\nlet imageUrl = '';\ntry {\n  const resultJson = data.data?.resultJson;\n  let parsed;\n  if (typeof resultJson === 'string') {\n    parsed = JSON.parse(resultJson);\n  } else {\n    parsed = resultJson;\n  }\n  imageUrl = parsed?.resultUrls?.[0] || '';\n  if (!imageUrl) throw new Error('No URL');\n} catch(e) {\n  imageUrl = 'https://placehold.co/1792x1024/1a1a2e/ffffff?text=Image+Unavailable';\n}\n\nreturn [{\n  json: {\n    sectionIndex: loopItem.sectionIndex,\n    imageUrl: imageUrl,\n    imageSource: 'AI Generated',\n    imageAlt: loopItem.sectionTitle,\n    _newsletterData: loopItem._newsletterData\n  }\n}];"
+      },
+      "id": "c72a0f66-372d-44d0-af44-77491ee6aa3a",
+      "name": "Extract Image URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -17120,
+        7392
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "1a352547-8563-4fc3-8963-007077110be1",
+      "name": "Wait 5s Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -17152,
+        7568
+      ],
+      "webhookId": "v6-wait-retry-5s"
+    },
+    {
+      "parameters": {
+        "jsCode": "// All images have been processed by the loop\n// Collect them all and attach to newsletter data\nconst allItems = $input.all();\nconst images = allItems.map(item => ({\n  sectionIndex: item.json.sectionIndex,\n  imageUrl: item.json.imageUrl,\n  imageSource: item.json.imageSource,\n  imageAlt: item.json.imageAlt\n}));\nimages.sort((a, b) => a.sectionIndex - b.sectionIndex);\n\n// Get the newsletter data from the first item\nconst newsletterData = allItems[0].json._newsletterData;\n\nreturn [{\n  json: {\n    ...newsletterData,\n    images: images\n  }\n}];"
+      },
+      "id": "cb7e1178-761f-46d9-b0de-99415b2603dc",
+      "name": "Collect All Images",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -17824,
+        7120
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build the full HTML newsletter email\nconst data = $input.first().json;\nconst nl = data.newsletter;\nconst images = data.images;\nconst brandName = data.brandName;\nconst date = data.date;\n\n// Color scheme\nconst colors = {\n  primary: '#1a1a2e',\n  accent: '#e94560',\n  bg: '#f5f5f5',\n  cardBg: '#ffffff',\n  text: '#2d2d2d',\n  textLight: '#6b7280',\n  border: '#e5e7eb'\n};\n\nlet sectionsHtml = '';\nnl.sections.forEach((section, i) => {\n  const img = images[i] || {};\n  const imageUrl = img.imageUrl || 'https://placehold.co/1792x1024/1a1a2e/ffffff?text=Newsletter';\n  const imageSource = img.imageSource || '';\n\n  sectionsHtml += `\n    <tr>\n      <td style=\"padding: 0 40px 40px 40px;\">\n        <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color: ${colors.cardBg}; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.06);\">\n          <tr>\n            <td style=\"padding: 0;\">\n              <img src=\"${imageUrl}\" alt=\"${section.title}\" width=\"100%\" style=\"display: block; width: 100%; height: auto; max-height: 400px; object-fit: cover; border-radius: 12px 12px 0 0;\" />\n              ${imageSource ? `<p style=\"margin: 4px 20px 0; font-size: 11px; color: ${colors.textLight}; font-style: italic;\">${imageSource}</p>` : ''}\n            </td>\n          </tr>\n          <tr>\n            <td style=\"padding: 28px 32px 32px 32px;\">\n              <h2 style=\"margin: 0 0 16px 0; font-size: 22px; font-weight: 700; color: ${colors.primary}; line-height: 1.3;\">${section.title}</h2>\n              <div style=\"font-size: 15px; line-height: 1.7; color: ${colors.text};\">${section.body}</div>\n            </td>\n          </tr>\n        </table>\n      </td>\n    </tr>\n    <tr><td style=\"height: 8px;\"></td></tr>`;\n});\n\nconst fullHtml = `<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>${nl.headline}</title>\n</head>\n<body style=\"margin: 0; padding: 0; background-color: ${colors.bg}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;\">\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color: ${colors.bg};\">\n    <tr>\n      <td align=\"center\" style=\"padding: 40px 20px;\">\n        <table width=\"680\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"max-width: 680px; width: 100%;\">\n          \n          <!-- HEADER -->\n          <tr>\n            <td style=\"background: linear-gradient(135deg, ${colors.primary} 0%, #16213e 100%); border-radius: 16px 16px 0 0; padding: 48px 40px 40px 40px; text-align: center;\">\n              <p style=\"margin: 0 0 8px 0; font-size: 13px; font-weight: 600; color: ${colors.accent}; text-transform: uppercase; letter-spacing: 2px;\">${brandName} NEWSLETTER</p>\n              <h1 style=\"margin: 0 0 12px 0; font-size: 32px; font-weight: 800; color: #ffffff; line-height: 1.2;\">${nl.headline}</h1>\n              <p style=\"margin: 0 0 16px 0; font-size: 16px; color: #a0aec0; line-height: 1.5;\">${nl.subtitle}</p>\n              <p style=\"margin: 0; font-size: 13px; color: #718096;\">${date}</p>\n            </td>\n          </tr>\n\n          <tr><td style=\"height: 32px; background-color: ${colors.bg};\"></td></tr>\n\n          <!-- SECTIONS -->\n          ${sectionsHtml}\n\n          <!-- CLOSING -->\n          <tr>\n            <td style=\"padding: 16px 40px 40px 40px;\">\n              <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"background-color: ${colors.primary}; border-radius: 12px;\">\n                <tr>\n                  <td style=\"padding: 32px; text-align: center;\">\n                    <p style=\"margin: 0 0 16px 0; font-size: 16px; color: #ffffff; line-height: 1.6;\">${nl.closing}</p>\n                    <p style=\"margin: 0; font-size: 13px; color: #718096;\">— The ${brandName} Team</p>\n                  </td>\n                </tr>\n              </table>\n            </td>\n          </tr>\n\n          <!-- FOOTER -->\n          <tr>\n            <td style=\"padding: 20px 40px 40px 40px; text-align: center;\">\n              <p style=\"margin: 0; font-size: 12px; color: ${colors.textLight};\">You're receiving this because you subscribed to ${brandName} updates.</p>\n            </td>\n          </tr>\n\n        </table>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>`;\n\nreturn [{\n  json: {\n    ...data,\n    htmlEmail: fullHtml,\n    linkedinPost: nl.linkedin_post,\n    emailSubject: `${brandName} Newsletter: ${nl.headline}`\n  }\n}];"
+      },
+      "id": "6fd522e6-16ff-4b18-ad16-37f02da6ba6e",
+      "name": "Build HTML Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -17552,
+        7120
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "draft",
+        "subject": "={{ $json.emailSubject }}",
+        "emailType": "html",
+        "message": "={{ $json.htmlEmail }}",
+        "options": {}
+      },
+      "id": "32749c53-91e7-405c-aa21-fa709d45fb9e",
+      "name": "Gmail - Create Draft",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        -17328,
+        7024
+      ],
+      "webhookId": "997b2116-3ba6-48b7-be31-5ef86f2c0863",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "poxCJ5oZUPY4nnl0",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Brand Input').item.json.callbackUrl }}/api/webhook/update",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ sessionId: $('Parse Brand Input').item.json.sessionId, stage: 'complete', htmlEmail: $json.htmlEmail, linkedinPost: $json.linkedinPost, emailSubject: $json.emailSubject }) }}",
+        "options": {}
+      },
+      "id": "callback-complete-001",
+      "name": "Callback: Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -17328,
+        7216
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Brand Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Brand Input": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        [
+          {
+            "node": "Perplexity - Deep Research",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Perplexity - Deep Research": {
+      "main": [
+        [
+          {
+            "node": "Wait For All Research",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google News RSS": {
+      "main": [
+        [
+          {
+            "node": "Wait For All Research",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Wait For All Research": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Research Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Research Data": {
+      "main": [
+        [
+          {
+            "node": "Callback: Research Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback: Research Complete": {
+      "main": [
+        [
+          {
+            "node": "Build OpenRouter Payload1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build OpenRouter Payload1": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter - Write Newsletter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter - Write Newsletter": {
+      "main": [
+        [
+          {
+            "node": "Parse Newsletter JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Newsletter JSON": {
+      "main": [
+        [
+          {
+            "node": "Callback: Newsletter Written",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback: Newsletter Written": {
+      "main": [
+        [
+          {
+            "node": "Split Sections for Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Sections for Images": {
+      "main": [
+        [
+          {
+            "node": "Callback: Generating Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Callback: Generating Images": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Sections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Sections": {
+      "main": [
+        [
+          {
+            "node": "Collect All Images",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Kie - Create Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kie - Create Image": {
+      "main": [
+        [
+          {
+            "node": "Wait for Kie",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for Kie": {
+      "main": [
+        [
+          {
+            "node": "Kie - Get Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Kie - Get Result": {
+      "main": [
+        [
+          {
+            "node": "Is Image Ready?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Image Ready?": {
+      "main": [
+        [
+          {
+            "node": "Extract Image URL",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait 5s Retry",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 5s Retry": {
+      "main": [
+        [
+          {
+            "node": "Kie - Get Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Image URL": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Sections",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect All Images": {
+      "main": [
+        [
+          {
+            "node": "Build HTML Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build HTML Email": {
+      "main": [
+        [
+          {
+            "node": "Gmail - Create Draft",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Callback: Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "aa8985f2c20200763cb73abef37aaa4ad6f5a1b6daceebaf3f0b7dfe5584fe78"
+  },
+  "tags": [
+    {
+      "name": "automation"
+    },
+    {
+      "name": "newsletter"
+    },
+    {
+      "name": "web"
+    }
+  ]
+}
