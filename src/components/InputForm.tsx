@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 interface InputFormProps {
-  onSubmit: (brandName: string, brandDescription: string) => void;
+  onSubmit: (brandName: string, brandDescription: string, recipientEmail: string) => void;
   isSubmitting: boolean;
   disabled: boolean;
   onReset: () => void;
@@ -17,11 +17,26 @@ export default function InputForm({
 }: InputFormProps) {
   const [brandName, setBrandName] = useState("");
   const [brandDescription, setBrandDescription] = useState("");
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+
+  const validateEmail = (email: string) => {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!brandName.trim() || !brandDescription.trim()) return;
-    onSubmit(brandName.trim(), brandDescription.trim());
+    if (!recipientEmail.trim()) {
+      setEmailError("Email is required");
+      return;
+    }
+    if (!validateEmail(recipientEmail.trim())) {
+      setEmailError("Please enter a valid email address");
+      return;
+    }
+    setEmailError("");
+    onSubmit(brandName.trim(), brandDescription.trim(), recipientEmail.trim());
   };
 
   return (
@@ -63,11 +78,46 @@ export default function InputForm({
         </div>
       </div>
 
+      <div>
+        <label
+          htmlFor="recipientEmail"
+          className="block text-sm font-medium text-gray-300 mb-1.5"
+        >
+          Send Newsletter To
+        </label>
+        <input
+          id="recipientEmail"
+          type="email"
+          value={recipientEmail}
+          onChange={(e) => {
+            setRecipientEmail(e.target.value);
+            if (emailError) setEmailError("");
+          }}
+          placeholder="e.g., you@example.com"
+          disabled={disabled}
+          className={`w-full px-4 py-3 bg-[#1a1a2e] border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 transition-colors disabled:opacity-50 ${
+            emailError
+              ? "border-red-500 focus:border-red-500 focus:ring-red-500"
+              : "border-gray-700 focus:border-[#e94560] focus:ring-[#e94560]"
+          }`}
+        />
+        {emailError && (
+          <p className="mt-1.5 text-xs text-red-400">{emailError}</p>
+        )}
+        <p className="mt-1.5 text-xs text-gray-500">
+          The finished newsletter will be sent directly to this address.
+        </p>
+      </div>
+
       <div className="flex gap-3">
         <button
           type="submit"
           disabled={
-            disabled || isSubmitting || !brandName.trim() || !brandDescription.trim()
+            disabled ||
+            isSubmitting ||
+            !brandName.trim() ||
+            !brandDescription.trim() ||
+            !recipientEmail.trim()
           }
           className="px-6 py-3 bg-[#e94560] hover:bg-[#c13050] text-white font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
         >

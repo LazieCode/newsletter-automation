@@ -5,11 +5,18 @@ import { Session } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { brandName, brandDescription } = body;
+  const { brandName, brandDescription, recipientEmail } = body;
 
   if (!brandName?.trim() || !brandDescription?.trim()) {
     return NextResponse.json(
       { error: "brandName and brandDescription are required" },
+      { status: 400 }
+    );
+  }
+
+  if (!recipientEmail?.trim()) {
+    return NextResponse.json(
+      { error: "recipientEmail is required" },
       { status: 400 }
     );
   }
@@ -50,6 +57,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         brandName: brandName.trim(),
         brandDescription: brandDescription.trim(),
+        recipientEmail: recipientEmail.trim(),
         callbackUrl,
         sessionId,
       }),

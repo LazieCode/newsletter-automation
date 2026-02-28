@@ -14,13 +14,13 @@ export default function StatusPollingProvider() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = useCallback(
-    async (brandName: string, brandDescription: string) => {
+    async (brandName: string, brandDescription: string, recipientEmail: string) => {
       setIsSubmitting(true);
       try {
         const res = await fetch("/api/trigger", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ brandName, brandDescription }),
+          body: JSON.stringify({ brandName, brandDescription, recipientEmail }),
         });
         const data = await res.json();
         if (data.sessionId) {
@@ -55,12 +55,25 @@ export default function StatusPollingProvider() {
     setSession(null);
   }, []);
 
-  // Polling
+  // Polling — stops at complete/error or after 20 minutes (400 × 3s)
   useEffect(() => {
     if (!sessionId) return;
     if (session?.stage === "complete" || session?.stage === "error") return;
 
+    let pollCount = 0;
+    const MAX_POLLS = 400;
+
     const interval = setInterval(async () => {
+      pollCount++;
+      if (pollCount > MAX_POLLS) {
+        clearInterval(interval);
+        setSession((prev) =>
+          prev
+            ? { ...prev, stage: "error", error: "Workflow timed out after 20 minutes. The n8n workflow may have stalled — check your n8n execution logs." }
+            : prev
+        );
+        return;
+      }
       try {
         const res = await fetch(`/api/status/${sessionId}`);
         if (res.ok) {
@@ -155,7 +168,7 @@ export default function StatusPollingProvider() {
             Newsletter Generated Successfully!
           </h3>
           <p className="text-green-300/70 text-sm">
-            Gmail draft created. LinkedIn post ready to copy. Review and send when ready.
+            Newsletter sent to your email. Gmail draft also created. LinkedIn post ready to copy.
           </p>
         </div>
       )}
