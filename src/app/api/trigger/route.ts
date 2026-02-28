@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     session.stage = "error";
     session.error = "N8N_WEBHOOK_URL is not configured";
     await setSession(session);
-    return NextResponse.json({ sessionId, status: session.stage });
+    return NextResponse.json({ sessionId, status: session.stage, error: session.error });
   }
 
   try {
@@ -56,8 +56,10 @@ export async function POST(request: NextRequest) {
     });
 
     if (!n8nResponse.ok) {
+      let responseBody = "";
+      try { responseBody = await n8nResponse.text(); } catch { /* ignore */ }
       session.stage = "error";
-      session.error = `n8n returned status ${n8nResponse.status}`;
+      session.error = `n8n returned status ${n8nResponse.status}${responseBody ? `: ${responseBody.slice(0, 200)}` : ""}`;
       await setSession(session);
     }
   } catch (err: unknown) {
@@ -66,5 +68,5 @@ export async function POST(request: NextRequest) {
     await setSession(session);
   }
 
-  return NextResponse.json({ sessionId, status: session.stage });
+  return NextResponse.json({ sessionId, status: session.stage, error: session.error ?? null });
 }

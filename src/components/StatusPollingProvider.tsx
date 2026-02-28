@@ -37,7 +37,7 @@ export default function StatusPollingProvider() {
             htmlEmail: null,
             linkedinPost: null,
             emailSubject: null,
-            error: data.status === "error" ? "Failed to trigger workflow" : null,
+            error: data.error ?? null,
           });
         }
       } catch {
